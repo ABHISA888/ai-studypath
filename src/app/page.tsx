@@ -43,7 +43,7 @@ export default function Home() {
       return;
     }
     if (!weeklyHours || parseInt(weeklyHours) < 1) {
-      setError("Please enter valid weekly hours (minimum 1)");
+      setError("Please enter valid weekly hours (min 1)");
       return;
     }
     if (!totalDuration || parseInt(totalDuration) < 1) {
