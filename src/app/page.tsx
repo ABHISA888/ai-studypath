@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import jsPDF from "jspdf";
 
 interface Topic {
   title: string;
@@ -36,6 +37,8 @@ export default function Home() {
   const [roadmap, setRoadmap] = useState<RoadmapResponse | null>(null);
   const [error, setError] = useState("");
   const [openWeek, setOpenWeek] = useState<number | null>(null);
+  const [exportingPDF, setExportingPDF] = useState(false);
+  const roadmapRef = useRef<HTMLDivElement>(null);
 
   const generateRoadmap = async () => {
     if (!goal.trim()) {
@@ -75,9 +78,74 @@ export default function Home() {
       setRoadmap(data);
       setOpenWeek(1);
     } catch (err: any) {
-      setError(err.message || "Something went wrong. Please try again.");
+      setError(err.message || "Something went wrong. Please try again ...");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const exportToPDF = async () => {
+    if (!roadmap) return;
+
+    setExportingPDF(true);
+    
+    try {
+      // Dynamically import html2canvas
+      const html2canvas = (await import("html2canvas")).default;
+      
+      // Expand all weeks for PDF
+      const allWeeks = roadmap.roadmap.map(w => w.week);
+      setOpenWeek(null);
+      
+      // Wait a bit for DOM to update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Get the roadmap element
+      const element = roadmapRef.current;
+      if (!element) return;
+
+      // Create canvas from element
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        backgroundColor: '#f8fafc',
+        useCORS: true,
+        logging: false,
+      });
+
+      // Calculate PDF dimensions
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+
+      // Create PDF
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      let position = 0;
+
+      // Add image to PDF
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      // Save PDF
+      const filename = `Learning_Roadmap_${roadmap.goal.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+      pdf.save(filename);
+      
+      // Restore open week
+      setOpenWeek(allWeeks[0] || 1);
+    } catch (error) {
+      console.error("Error exporting PDF:", error);
+      alert("Failed to export PDF. Please try again.");
+    } finally {
+      setExportingPDF(false);
     }
   };
 
@@ -180,29 +248,55 @@ export default function Home() {
 
         {/* Roadmap Display */}
         {roadmap && !loading && (
-          <div className="space-y-6">
-            {/* Roadmap Header */}
+          <div ref={roadmapRef} className="space-y-6">
+            {/* Roadmap Header with Export Button */}
             <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">
-                Your Learning Roadmap: {roadmap.goal}
-              </h2>
-              <div className="flex flex-wrap gap-4 text-sm text-slate-600">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-900">{roadmap.totalWeeks}</span>
-                  <span>weeks</span>
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">
+                    Your Learning Roadmap: {roadmap.goal}
+                  </h2>
+                  <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900">{roadmap.totalWeeks}</span>
+                      <span>weeks</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900">{roadmap.weeklyHours}</span>
+                      <span>hours/week</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900">{roadmap.totalWeeks * roadmap.weeklyHours}</span>
+                      <span>total hours</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-900">{roadmap.weeklyHours}</span>
-                  <span>hours/week</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-900">{roadmap.totalWeeks * roadmap.weeklyHours}</span>
-                  <span>total hours</span>
-                </div>
+                <button
+                  onClick={exportToPDF}
+                  disabled={exportingPDF}
+                  className="ml-4 flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold py-2 px-4 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 disabled:cursor-not-allowed"
+                >
+                  {exportingPDF ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Export PDF
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
-            {/* Weeks */}
+            {/* Weeks - Always expanded for PDF */}
             {roadmap.roadmap.map((week) => (
               <div key={week.week} className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
                 <button
@@ -227,7 +321,7 @@ export default function Home() {
                   </div>
                 </button>
 
-                {openWeek === week.week && (
+                {(openWeek === week.week || exportingPDF) && (
                   <div className="px-6 pb-6 space-y-4 border-t border-slate-200 pt-6">
                     {week.topics.map((topic, i) => (
                       <div key={i} className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-5 border border-slate-200">
@@ -238,7 +332,7 @@ export default function Home() {
                           </span>
                         </div>
                         
-                        <p className="text-slate-700 mb-4 leading-relaxed">{topic.description}</p>
+                        <p className="text-slate-700 mb-4 leading-relaxed whitespace-pre-line">{topic.description}</p>
 
                         {topic.commands && topic.commands.length > 0 && (
                           <div className="mb-4">
